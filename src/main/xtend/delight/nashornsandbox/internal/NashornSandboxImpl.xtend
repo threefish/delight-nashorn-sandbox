@@ -13,21 +13,24 @@ import javax.script.ScriptEngine
 import javax.script.ScriptException
 import jdk.nashorn.api.scripting.NashornScriptEngineFactory
 import jdk.nashorn.api.scripting.ScriptObjectMirror
+import java.io.Writer
 
 class NashornSandboxImpl implements NashornSandbox {
 
-	var SandboxClassFilter sandboxClassFilter
-	val Map<String, Object> globalVariables
+	protected var SandboxClassFilter sandboxClassFilter
+	protected val Map<String, Object> globalVariables
 
-	var ScriptEngine scriptEngine
-	var Long maxCPUTimeInMs = 0L
-	var ExecutorService exectuor
+	protected var ScriptEngine scriptEngine
+	protected var Long maxCPUTimeInMs = 0L
+	protected var ExecutorService exectuor
 
-	var allowPrintFunctions = false
-	var allowReadFunctions = false
-	var allowLoadFunctions = false
-	var allowExitFunctions = false
-	var allowGlobalsObjects = false
+	protected var allowPrintFunctions = false
+	protected var allowReadFunctions = false
+	protected var allowLoadFunctions = false
+	protected var allowExitFunctions = false
+	protected var allowGlobalsObjects = false
+
+	protected var volatile debug = false
 
 	def void assertScriptEngine() {
 		if (scriptEngine !== null) {
@@ -69,28 +72,35 @@ class NashornSandboxImpl implements NashornSandbox {
 
 	}
 
-	private def static String replaceGroup(String str, String regex, String replacementForGroup2) {
+	protected def static String replaceGroup(String str, String regex, String replacementForGroup2) {
 		val Pattern pattern = Pattern.compile(regex);
 		val Matcher matcher = pattern.matcher(str);
 		val StringBuffer sb = new StringBuffer();
-		while (matcher.find()) { 
+		while (matcher.find()) {
 			matcher.appendReplacement(sb, "$1" + replacementForGroup2);
 		}
 		matcher.appendTail(sb);
 		return sb.toString()
 	}
 
-	private def static String injectInterruptionCalls(String str, int randomToken) {
-		var res = str.replaceAll(';\\n', ';intCheckForInterruption' + randomToken + '();\n')
-		res = replaceGroup(res, "(while \\([^\\)]*)(\\) \\{)", ') {intCheckForInterruption' + randomToken + '();\n')
-		res = replaceGroup(res, "(for \\([^\\)]*)(\\) \\{)", ') {intCheckForInterruption' + randomToken + '();\n')
+	protected def static String injectInterruptionCalls(String str, int randomToken) {
+		var res = str.replaceAll(';\\n(?![\\s]*else[\\s]+)', ';intCheckForInterruption' + randomToken + '();\n')
+		res = replaceGroup(res, "(while \\([^\\)]*)(\\) \\{)", ') {intCheckForInterruption' + randomToken + '();')
+		res = replaceGroup(res, "(for \\([^\\)]*)(\\) \\{)", ') {intCheckForInterruption' + randomToken + '();')
 		res = res.replaceAll("\\} while \\(", "\nintCheckForInterruption" + randomToken + "();\n\\} while \\(")
+
 	}
 
 	override Object eval(String js) {
 		assertScriptEngine
 
 		if (maxCPUTimeInMs == 0) {
+			if (debug) {
+				println("--- Running JS ---")
+				println(js)
+				println("--- JS END ---")
+			}
+
 			return scriptEngine.eval(js)
 		}
 
@@ -121,7 +131,7 @@ class NashornSandboxImpl implements NashornSandbox {
 
 					val randomToken = Math.abs(new Random().nextInt)
 
-					val securedJs = '''
+					var preamble = '''
 						var InterruptTest = Java.type('«InterruptTest.name»');
 						var isInterrupted = InterruptTest.isInterrupted;
 						var intCheckForInterruption«randomToken» = function() {
@@ -129,10 +139,11 @@ class NashornSandboxImpl implements NashornSandbox {
 							    throw new Error('Interrupted«randomToken»')
 							}
 						};
-					''' + injectInterruptionCalls(beautifiedJs, randomToken)
-					
-					
-					
+					'''
+					preamble = preamble.replace("\n", "")
+
+					val securedJs = preamble + injectInterruptionCalls(beautifiedJs, randomToken)
+
 					val mainThread = Thread.currentThread
 
 					monitorThread.threadToMonitor = Thread.currentThread
@@ -146,6 +157,11 @@ class NashornSandboxImpl implements NashornSandbox {
 					monitorThread.start
 
 					try {
+						if (debug) {
+							println("--- Running JS ---")
+							println(securedJs)
+							println("--- JS END ---")
+						}
 						val res = scriptEngine.eval(securedJs)
 						resVal.set(res)
 					} catch (ScriptException e) {
@@ -196,7 +212,7 @@ class NashornSandboxImpl implements NashornSandbox {
 					exceptionVal.get())
 			}
 
-			if (exceptionVal.get != null) {
+			if (exceptionVal.get !== null) {
 				throw exceptionVal.get
 			}
 
@@ -233,7 +249,7 @@ class NashornSandboxImpl implements NashornSandbox {
 		if (!sandboxClassFilter.contains(object.class.name)) {
 			allow(object.class)
 		}
-		if (scriptEngine != null) {
+		if (scriptEngine !== null) {
 			scriptEngine.put(variableName, object)
 		}
 		this
@@ -273,10 +289,20 @@ class NashornSandboxImpl implements NashornSandbox {
 		this.allowGlobalsObjects = v
 	}
 
+	override setDebug(boolean value) {
+		this.debug = value
+	}
+
 	new() {
 		this.sandboxClassFilter = new SandboxClassFilter()
 		this.globalVariables = new HashMap<String, Object>
 		allow(InterruptTest)
+	}
+
+	override setWriter(Writer writer) {
+		assertScriptEngine
+
+		scriptEngine.getContext().setWriter(writer)
 	}
 
 }

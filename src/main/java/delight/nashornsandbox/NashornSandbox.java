@@ -1,5 +1,6 @@
 package delight.nashornsandbox;
 
+import java.io.Writer;
 import java.util.concurrent.ExecutorService;
 
 @SuppressWarnings("all")
@@ -35,6 +36,8 @@ public interface NashornSandbox {
    */
   public abstract NashornSandbox setMaxCPUTime(final long limit);
   
+  public abstract void setWriter(final Writer writer);
+  
   /**
    * Specifies the executor service which is used to run scripts when a CPU time limit is specified.
    */
@@ -46,6 +49,11 @@ public interface NashornSandbox {
    * Evaluates the string.
    */
   public abstract Object eval(final String js);
+  
+  /**
+   * Enables debug output from the Sandbox.
+   */
+  public abstract void setDebug(final boolean value);
   
   /**
    * Obtains the value of the specified JavaScript variable.

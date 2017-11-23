@@ -51,7 +51,7 @@ public class TestLimitCPU {
   @Test
   public void test_nice_script() {
     final NashornSandbox sandbox = NashornSandboxes.create();
-    sandbox.setMaxCPUTime(50);
+    sandbox.setMaxCPUTime(500);
     sandbox.setExecutor(Executors.newSingleThreadExecutor());
     StringConcatenation _builder = new StringConcatenation();
     _builder.append("var x = 1;");
